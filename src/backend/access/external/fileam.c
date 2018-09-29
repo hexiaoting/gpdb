@@ -90,11 +90,12 @@ static void external_scan_error_callback(void *arg);
 static List *parseCopyFormatString(Relation rel, char *fmtstr, char fmttype);
 static void parseCustomFormatString(char *fmtstr, char **formatter_name, List **formatter_params);
 static Oid lookupCustomFormatter(char *formatter_name, bool iswritable);
+static Oid lookupGisFormatter(char *formatter_name, bool iswritable);
 static void justifyDatabuf(StringInfo buf);
 
 static void base16_encode(char *raw, int len, char *encoded);
 static char *get_eol_delimiter(List *params);
-static void external_set_env_vars_ext(extvar_t *extvar, char *uri, bool csv, char *escape,
+static void external_set_env_vars_ext(extvar_t *extvar, FileScanDesc scan, char *uri, bool csv, char *escape,
 				 char *quote, int eol_type, bool header, uint32 scancounter, List *params);
 
 static List *appendCopyEncodingOption(List *copyFmtOpts, int encoding);
@@ -151,6 +152,7 @@ external_beginscan(Relation relation, uint32 scancounter,
 	 */
 	scan = (FileScanDesc) palloc0(sizeof(FileScanDescData));
 
+	scan->format = fmtType;
 	scan->fs_inited = false;
 	scan->fs_ctup.t_data = NULL;
 	ItemPointerSetInvalid(&scan->fs_ctup.t_self);
@@ -282,6 +284,15 @@ external_beginscan(Relation relation, uint32 scancounter,
 								&custom_formatter_name,
 								&custom_formatter_params);
 	}
+	else if (fmttype_is_gis(fmtType))
+	{
+		copyFmtOpts = NIL;
+		parseCustomFormatString(fmtOptString,
+								&custom_formatter_name,
+								&custom_formatter_params);
+	        elog(DEBUG1, "hwt--->external_beginscan fmtOptString=%s, custom_formatter_name=%s",
+		       fmtOptString, custom_formatter_name);
+	}
 	else
 		copyFmtOpts = parseCopyFormatString(relation, fmtOptString, fmtType);
 
@@ -321,6 +332,22 @@ external_beginscan(Relation relation, uint32 scancounter,
 		initStringInfo(&scan->fs_formatter->fmt_databuf);
 		scan->fs_formatter->fmt_perrow_ctx = scan->fs_pstate->rowcontext;
 
+	}
+	if (fmttype_is_gis(fmtType))
+	{
+		Oid			procOid;
+		procOid = lookupGisFormatter(custom_formatter_name, false);
+	    	elog(DEBUG1, "hwt--->external_beginscan lookupGisFormatter, procOid=%d", procOid);
+		scan->fs_custom_formatter_func = palloc0(sizeof(FmgrInfo));
+		fmgr_info(procOid, scan->fs_custom_formatter_func);
+		scan->fs_custom_formatter_params = custom_formatter_params;
+		scan->fs_custom_formatter_func->fn_extra = scan;
+
+		//scan->raw_buf_done = false; /* true so we will read data in first run */
+		scan->fs_formatter = (FormatterData *) palloc0(sizeof(FormatterData));
+		initStringInfo(&scan->fs_formatter->fmt_databuf);
+		scan->fs_formatter->fmt_perrow_ctx = scan->fs_pstate->rowcontext;
+		scan->fs_formatter->fmt_executor_ctx = CurrentMemoryContext;
 	}
 
 	/* pgstat_initstats(relation); */
@@ -970,6 +997,18 @@ externalgettup_custom(FileScanDesc scan)
 				elog(ERROR, "header line in custom format is not yet supported");
 		}
 
+		if (scan->tuple && fmttype_is_gis(scan->format))
+		{
+		    if (pstate->cdbsreh != NULL) {
+			pstate->cdbsreh->processed++;
+		    }
+		    scan->raw_buf_done = true;
+		    MemoryContextReset(formatter->fmt_perrow_ctx);
+		    formatter->fmt_databuf.cursor = formatter->fmt_databuf.len;
+		    justifyDatabuf(&formatter->fmt_databuf);
+		    return scan->tuple;
+		}
+
 		/* while there is still data in our buffer */
 		while (!scan->raw_buf_done)
 		{
@@ -1202,6 +1241,62 @@ lookupCustomFormatter(char *formatter_name, bool iswritable)
 }
 
 /*
+ * lookupGisFormatter 
+ *
+ * Given a formatter name and a function signature (pre-determined
+ * by whether it is readable or writable) find such a function in
+ * the catalog and store it to be used later.
+ *
+ * WET function: 1 record arg, return bytea.
+ * RET function: 0 args, returns record.
+ */
+static Oid
+lookupGisFormatter(char *formatter_name, bool iswritable)
+{
+	List	   *funcname = NIL;
+	Oid			procOid = InvalidOid;
+	Oid			argList[1];
+	Oid			returnOid = INT4OID;
+
+	funcname = lappend(funcname, makeString(formatter_name));
+
+	if (iswritable)
+	{
+		argList[0] = RECORDOID;
+		procOid = LookupFuncName(funcname, 1, argList, true);
+	}
+	else
+	{
+		procOid = LookupFuncName(funcname, 0, argList, true);
+	}
+
+	if (!OidIsValid(procOid))
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_FUNCTION),
+					errmsg("formatter function %s of type %s was not found.",
+						   formatter_name,
+						   (iswritable ? "writable" : "readable")),
+						errhint("Create it with CREATE FUNCTION.")));
+
+	/* check return type matches */
+	if (get_func_rettype(procOid) != returnOid)
+		ereport(ERROR, (errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+						errmsg("gis formatter function %s of type %s has an incorrect return type(%d!=%d)",
+							   formatter_name,
+							   (iswritable ? "writable" : "readable"),
+							   get_func_rettype(procOid),
+							   returnOid)));
+
+	/* check allowed volatility */
+	if (func_volatile(procOid) != PROVOLATILE_STABLE)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("formatter function %s is not declared STABLE.",
+						formatter_name)));
+
+	return procOid;
+}
+
+/*
  * Initialize the data parsing state.
  *
  * This includes format descriptions (delimiter, quote...), format type
@@ -1352,6 +1447,7 @@ open_external_readable_source(FileScanDesc scan, List* filter_quals)
 	/* set up extvar */
 	memset(&extvar, 0, sizeof(extvar));
 	external_set_env_vars_ext(&extvar,
+							  scan,
 							  scan->fs_uri,
 							  scan->fs_pstate->csv_mode,
 							  scan->fs_pstate->escape,
@@ -1384,6 +1480,7 @@ open_external_writable_source(ExternalInsertDesc extInsertDesc)
 	/* set up extvar */
 	memset(&extvar, 0, sizeof(extvar));
 	external_set_env_vars_ext(&extvar,
+							  NULL,
 							  extInsertDesc->ext_uri,
 							  extInsertDesc->ext_pstate->csv_mode,
 							  extInsertDesc->ext_pstate->escape,
@@ -2102,6 +2199,11 @@ parseCopyFormatString(Relation rel, char *fmtstr, char fmttype)
 		/* Add FORMAT 'CSV' option to the beginning of the list */
 		l = lcons(makeDefElem("format", (Node *) makeString("csv")), l);
 	}
+	else if (fmttype_is_gis(fmttype))
+	{
+		/* TODO: Gis */
+	    elog(DEBUG1, "--->parseCopyFormatString not return for gis");
+	}
 	else
 		elog(ERROR, "unrecognized format type '%c'", fmttype);
 
@@ -2223,11 +2325,11 @@ base16_encode(char *raw, int len, char *encoded)
 void
 external_set_env_vars(extvar_t *extvar, char *uri, bool csv, char *escape, char *quote, bool header, uint32 scancounter)
 {
-	external_set_env_vars_ext(extvar, uri, csv, escape, quote, EOL_UNKNOWN, header, scancounter, NULL);
+	external_set_env_vars_ext(extvar, NULL, uri, csv, escape, quote, EOL_UNKNOWN, header, scancounter, NULL);
 }
 
 static void
-external_set_env_vars_ext(extvar_t *extvar, char *uri, bool csv, char *escape, char *quote, int eol_type, bool header,
+external_set_env_vars_ext(extvar_t *extvar, FileScanDesc scan, char *uri, bool csv, char *escape, char *quote, int eol_type, bool header,
 						  uint32 scancounter, List *params)
 {
 	time_t		now = time(0);
@@ -2236,6 +2338,8 @@ external_set_env_vars_ext(extvar_t *extvar, char *uri, bool csv, char *escape, c
 
 	char	   *encoded_delim;
 	int			line_delim_len;
+
+	extvar->scan = scan;
 
 	snprintf(extvar->GP_CSVOPT, sizeof(extvar->GP_CSVOPT),
 			"m%dx%dq%dn%dh%d",

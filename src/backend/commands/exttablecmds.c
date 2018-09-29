@@ -728,12 +728,16 @@ transformFormatType(char *formatname)
 		result = 'a';
 	else if (pg_strcasecmp(formatname, "parquet") == 0)
 		result = 'p';
+	else if (pg_strcasecmp(formatname, "gis") == 0)
+		result = 'g';
+	else if (pg_strcasecmp(formatname, "shapefile") == 0)
+		result = 's';
 	else
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("unsupported format '%s'", formatname),
 			   errhint("Available formats for external tables are \"text\", "
-					   "\"csv\", \"avro\", \"parquet\" and \"custom\"")));
+					   "\"csv\", \"avro\", \"gis\", \"shapefile\",\"parquet\" and \"custom\"")));
 
 	return result;
 }
@@ -791,7 +795,8 @@ transformFormatOpts(char formattype, List *formatOpts, int numcols, bool iswrita
 		   fmttype_is_text(formattype) ||
 		   fmttype_is_csv(formattype) ||
 		   fmttype_is_avro(formattype) ||
-		   fmttype_is_parquet(formattype));
+		   fmttype_is_parquet(formattype) ||
+		   fmttype_is_gis(formattype));
 
 	/* Extract options from the statement node tree */
 	if (fmttype_is_text(formattype) || fmttype_is_csv(formattype))
@@ -918,6 +923,21 @@ transformFormatOpts(char formattype, List *formatOpts, int numcols, bool iswrita
 			val = "gphdfs_export";
 		else
 			val = "gphdfs_import";
+
+		format_str = psprintf("formatter '%s' ", val);
+	}
+	else if (fmttype_is_gis(formattype))
+	{
+		/*
+		 * gis format, add "formatter 'gis_import’ " directly, user
+		 * don't need to set this value
+		 */
+		char	   *val;
+
+		if (iswritable)
+			val = "oss_export";
+		else
+			val = "oss_import";
 
 		format_str = psprintf("formatter '%s' ", val);
 	}

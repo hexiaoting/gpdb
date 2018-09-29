@@ -11,7 +11,7 @@ ext_dir=$(BLD_TOP)/gpAux/ext
 top_builddir = ..
 include $(top_builddir)/src/Makefile.global
 
-.PHONY: all install clean distclean gpcloud pxf mapreduce gphdfs mkgphdfs
+.PHONY: all install clean distclean gpcloud pxf mapreduce gphdfs mkgphdfs gposs
 
 #
 # targets built via top_builddir/GNUmakefile

@@ -122,5 +122,7 @@ extern void RemoveExtTableEntry(Oid relid);
 #define fmttype_is_parquet(c) (c == 'p')
 #define fmttype_is_text(c)   (c == 't')
 #define fmttype_is_csv(c)    (c == 'c')
+#define fmttype_is_gis(c)    (c == 'g' || c == 's')
+#define fmttype_is_shapefile(c)    (c == 's')
 
 #endif /* PG_EXTTABLE_H */

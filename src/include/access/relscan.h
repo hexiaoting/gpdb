@@ -104,6 +104,7 @@ typedef struct FileScanDescData
 	Relation	fs_rd;			/* target relation descriptor */
 	struct URL_FILE *fs_file;	/* the file pointer to our URI */
 	char	   *fs_uri;			/* the URI string */
+	char		format;
 	bool		fs_noop;		/* no op. this segdb has no file to scan */
 	uint32      fs_scancounter;	/* copied from struct ExternalScan in plan */
 	
@@ -124,6 +125,7 @@ typedef struct FileScanDescData
 	bool		fs_inited;		/* false = scan not init'd yet */
 	TupleDesc	fs_tupDesc;
 	HeapTupleData fs_ctup;		/* current tuple in scan, if any */
+	HeapTuple	tuple;
 
 	/* custom data formatter */
 	FmgrInfo   *fs_custom_formatter_func; /* function to convert to custom format */

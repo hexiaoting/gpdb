@@ -85,6 +85,7 @@ url_custom_fopen(char *url, bool forwrite, extvar_t *ev, CopyState pstate, List*
 
 	/* we found our function. set it in custom file handler */
 	fmgr_info(procOid, file->protocol_udf);
+	file->protocol_udf->fn_extra = ev->scan;
 
 	MemoryContextSwitchTo(oldcontext);
 
