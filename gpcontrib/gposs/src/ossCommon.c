@@ -1,5 +1,4 @@
 #include "postgres.h"
-
 #include "ossCommon.h"
 #include "miscadmin.h"
 
@@ -172,7 +171,7 @@ void * repalloc(void *ptr, size_t sz);
 stringbuffer_t*
 stringbuffer_create(void)
 {
-    return stringbuffer_create_with_size(STRINGBUFFER_STARTSIZE);
+    return stringbuffer_create_with_size(STRINGBUFFER_SIZE);
 }
 
 static void
@@ -193,7 +192,7 @@ stringbuffer_release(stringbuffer_t *s)
 void
 stringbuffer_init(stringbuffer_t *s)
 {
-    stringbuffer_init_with_size(s, STRINGBUFFER_STARTSIZE);
+    stringbuffer_init_with_size(s, STRINGBUFFER_SIZE);
 }
 
 /**

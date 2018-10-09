@@ -1,6 +1,12 @@
 COMMON_OBJS =  ossGisExt.o ossExtWrapper.o ossGisReader.o ossCommon.o ossDownloader.o ossGisRaster.o ossGisMeta.o ossShapeReader.o 
 
-COMMON_LINK_OPTIONS = -lstdc++ -lxml2 -lpthread -lcrypto -lcurl -lz -loss -lgdal -lrtpostgis -L/home/gpadmin/repo/gdal/gdal/build/lib
+GDAL_LIB = $(shell gdal-config --libs)
+
+PG_LIB = $(shell pg_config --pkglibdir)
+
+GPDB_LIB = $(shell pg_config --libdir)
+
+COMMON_LINK_OPTIONS = -lstdc++ -lxml2 -lpthread -lcrypto -lcurl -lz -loss -L$(GPDB_LIB) -lrtpostgis -L$(PG_LIB) $(GDAL_LIB) 
 
 COMMON_CPP_FLAGS = -fPIC -I/usr/include/libxml2 -I/usr/local/opt/openssl/include
 

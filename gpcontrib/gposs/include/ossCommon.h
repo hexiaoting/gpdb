@@ -14,7 +14,7 @@
 #include "ogr_srs_api.h"
 #include "cpl_error.h"
 
-#define STRINGBUFFER_STARTSIZE 128
+#define STRINGBUFFER_SIZE 1024 
 #define STR_MAX_LEN 256
 
 typedef struct

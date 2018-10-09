@@ -3,6 +3,7 @@ include ./include/makefile.inc
 
 # Options
 DEBUG_S3_SYMBOL = y
+pkglibdir = /usr/local/gpdb/lib/postgresql
 
 # Flags
 SHLIB_LINK += $(COMMON_LINK_OPTIONS)
@@ -21,18 +22,10 @@ ifdef USE_PGXS
 PGXS := $(shell pg_config --pgxs)
 include $(PGXS)
 else
-top_builddir = ../../..
+top_builddir = ../..
 -include $(top_builddir)/src/Makefile.global
 -include $(top_srcdir)/contrib/contrib-global.mk
 endif
-
-gpcheckcloud:
-	@$(MAKE) -C bin/gpcheckcloud
-
-install: install-symlink
-
-install-symlink:
-	ln -sf gpossext.so $(pkglibdir)/gpgisext.so
 
 test: format
 	@$(MAKE) -C test test
@@ -46,18 +39,17 @@ tags:
 	-gtags -i
 
 lint:
-	cppcheck -v --enable=warning src/*.cpp bin/gpcheckcloud/*.cpp test/*.cpp include/*.h
+	cppcheck -v --enable=warning src/*.cpp test/*.cpp include/*.h
 
 format:
-	@-[ -n "`command -v dos2unix`" ] && dos2unix -k -q src/*.cpp bin/gpcheckcloud/*.cpp test/*.cpp include/*.h
-	@-[ -n "`command -v clang-format`" ] && clang-format -style="{BasedOnStyle: Google, IndentWidth: 4, ColumnLimit: 100, AllowShortFunctionsOnASingleLine: None}" -i src/*.cpp bin/gpcheckcloud/*.cpp test/*.cpp include/*.h
+	@-[ -n "`command -v dos2unix`" ] && dos2unix -k -q src/*.cpp test/*.cpp include/*.h
+	@-[ -n "`command -v clang-format`" ] && clang-format -style="{BasedOnStyle: Google, IndentWidth: 4, ColumnLimit: 100, AllowShortFunctionsOnASingleLine: None}" -i src/*.cpp test/*.cpp include/*.h
 
 cleanall:
 	@-$(MAKE) clean # incase PGXS not included
-	@-$(MAKE) -C bin/gpcheckcloud clean
 	@$(MAKE) -C test clean
 	rm -f *.o *.so *.a
 	rm -f *.gcov src/*.gcov src/*.gcda src/*.gcno
-	rm -f src/*.o src/*.d bin/gpcheckcloud/*.o bin/gpcheckcloud/*.d test/*.o test/*.d test/*.a lib/*.o lib/*.d
+	rm -f src/*.o src/*.d test/*.o test/*.d test/*.a lib/*.o lib/*.d
 
 .PHONY: format lint tags test coverage cleanall
