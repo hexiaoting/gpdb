@@ -40,7 +40,7 @@ create readable external table pt_two (
 	height real,
 	birthdate date
 	)
-    location('oss://s3.ap-northeast-1.amazonaws.com/hwtoss/shapefile layer=pt_two')
+    location('oss://s3.ap-northeast-1.amazonaws.com/hwtoss/shapefile access_key_id=AKIAIH7UJTSAWOAHE5FQ secret_access_key=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 layer=pt_two')
     format 'Shapefile';
 
 select * from pt_two;
