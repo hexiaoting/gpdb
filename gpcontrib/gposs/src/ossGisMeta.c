@@ -642,3 +642,12 @@ GDALInfoReportCorner( char *buffer, int size,
 
     return size;
 }
+
+char *getSubDataset(GDALMajorObjectH hObject)
+{
+    char **papszMetadata = GDALGetMetadata( (GDALMajorObjectH)hObject, "SUBDATASETS");
+    if( papszMetadata != NULL && *papszMetadata != NULL )
+	for( int i = 0; papszMetadata[i] != NULL; i++ )
+	    elog(DEBUG4, "%s", papszMetadata[i]);
+    return papszMetadata == NULL ? NULL : papszMetadata[0];
+}

@@ -61,6 +61,38 @@ void safePfree(void *p) {
     }
 }
 
+bool is_netcdf(char *filename)
+{
+    int length = strlen(filename);
+    if (!strcmp(filename + length - 3, ".nc"))
+	return true;
+    return false;
+}
+
+bool saveTmpFile(char *filename, char *buffer, int64_t size)
+{
+    char newFileName[100] = "/tmp/temp.netcdffile";
+    FILE *file = NULL;
+    int count = 0;
+
+    elog(INFO, "save %s to newFileName:%s", filename, newFileName);
+    file = fopen(newFileName, "w+");
+    if (file == NULL)
+	return false;
+
+    while (count < size) {
+	size_t tmp = fwrite(buffer + count, 1, size - count,
+		file);
+	if (tmp <= 0)
+	    break;
+	count += tmp;
+    }
+    fclose(file);
+    elog(INFO, "write %s to newFileName:%s", filename, newFileName);
+
+    return true;
+}
+
 OssGisReader::OssGisReader(FileScanDesc scan, ListBucketResult *keys,
                          std::unique_ptr<OSSExtBase> base)
     : scan(scan), keys(keys), base(std::move(base)), /*tupdesc(scan->fs_tupDesc),*/
@@ -163,10 +195,28 @@ HeapTuple OssGisReader::nextTuple() {
     DownloadObject(base->ossContextInt,  base->bucket,
 		        this->curObjectName, this->curObjectSize, buffer);
 
+    CPLSetConfigOption("GDAL_SKIP", NULL);
     GDALAllRegister();
-    VSIInstallMemFileHandler();
-    VSIFCloseL( VSIFileFromMemBuffer( "/vsimem/work.dat", (unsigned char *)buffer, this->curObjectSize, FALSE) );
-    hds = GDALOpen("/vsimem/work.dat", GA_ReadOnly);
+    if (is_netcdf(this->curObjectName)) {
+	saveTmpFile(this->curObjectName, buffer, this->curObjectSize);
+
+	hds = GDALOpenEx("/tmp/temp.netcdffile", GDAL_OF_READONLY | GDAL_OF_RASTER | GDAL_OF_VERBOSE_ERROR, NULL,NULL,NULL);
+	if (hds == NULL) {
+	    elog(ERROR, "open memory gdal failed.\n");
+	}
+
+	char *datasetName = getSubDataset(hds);
+	char* ptr = strchr(datasetName, '=');
+	elog(DEBUG1, "open netcdf %s", ptr + 1);
+	GDALClose(hds);
+	hds = GDALOpenEx(ptr + 1, GDAL_OF_READONLY | GDAL_OF_RASTER | GDAL_OF_VERBOSE_ERROR, NULL,NULL,NULL);
+    }
+    else
+    {
+	VSIInstallMemFileHandler();
+	VSIFCloseL( VSIFileFromMemBuffer( "/vsimem/work.dat", (unsigned char *)buffer, this->curObjectSize, FALSE) );
+	hds = GDALOpenEx("/vsimem/work.dat", GDAL_OF_READONLY | GDAL_OF_RASTER | GDAL_OF_VERBOSE_ERROR, NULL,NULL,NULL);
+    }
     if (hds == NULL) {
 	elog(ERROR, "open memory gdal failed.\n");
     }
