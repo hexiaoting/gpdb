@@ -12,6 +12,6 @@
 //int GetGisMeta( GDALDatasetH        hDataset );
 //int GetGisMeta(char *meta);
 int GetGisMeta(GDALDatasetH hDataset, char* buffer);
-char *getSubDataset(GDALMajorObjectH hObject);
+char *getSubDataset(GDALMajorObjectH hObject, char *buffer, int idx);
 
 #endif

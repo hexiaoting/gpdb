@@ -64,10 +64,14 @@ extern void truncate_options(const char* url_with_options, char **url,
 							char **secret_access_key,
 							char **oss_type,
 							char **cos_appid,
-							char **layer_name);
+							char **layer_name,
+							int *subdataset);
 extern char *getVFSUrl(char *url);
 extern char *getRegion(char *url);
+extern char *getBucket(char *url);
 extern void ogrStringLaunder(char *str);
 extern void ogrDeparseStringLiteral(stringbuffer_t *buf, const char *val);
 extern char *ogrTypeToPgType(OGRFieldDefnH ogr_fld);
+extern bool is_netcdf(char *filename);
+extern bool saveTmpFile(char *filename, char *buffer, int64_t size);
 #endif  // __OSS_COMMON_H__

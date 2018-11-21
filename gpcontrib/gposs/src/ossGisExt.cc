@@ -35,8 +35,9 @@ Datum gis_file_import(PG_FUNCTION_ARGS) {
         /* first call. do any desired init */
         char *url_with_options = EXTPROTOCOL_GET_URL(fcinfo);
         char *url, *access_key_id, *secret_access_key, *oss_type, *cos_appid, *layer;
-        truncate_options(url_with_options, &url, &access_key_id, &secret_access_key, &oss_type, &cos_appid, &layer);
-        reader = create_import_reader(scan, url, access_key_id, secret_access_key, oss_type, cos_appid, 'g');
+       	int subdataset;
+        truncate_options(url_with_options, &url, &access_key_id, &secret_access_key, &oss_type, &cos_appid, &layer, &subdataset);
+        reader = create_import_reader(scan, url, access_key_id, secret_access_key, oss_type, cos_appid, 'g', subdataset);
 	if (reader == NULL)
 	    PG_RETURN_INT32((int)0);
 
@@ -61,6 +62,9 @@ Datum gis_file_import(PG_FUNCTION_ARGS) {
     PG_RETURN_INT32((int)1);
 }
 
+/*
+ * Return netcdf subdataset
+ */
 Datum
 ogr_fdw_info(PG_FUNCTION_ARGS)
 {
@@ -69,6 +73,7 @@ ogr_fdw_info(PG_FUNCTION_ARGS)
     int count = 0;
     char *url_with_options = text_to_cstring(PG_GETARG_TEXT_PP(0));
     char *url, *region, *access_key_id, *secret_access_key, *oss_type, *cos_appid, *vfs_url = NULL, *layer;
+    int subdataset;
 
 
     /* check to see if caller supports us returning a tuplestore */
@@ -83,7 +88,7 @@ ogr_fdw_info(PG_FUNCTION_ARGS)
 		     "allowed in this context")));
 
     GDALAllRegister();
-    truncate_options(url_with_options, &url, &access_key_id, &secret_access_key, &oss_type, &cos_appid, &layer);
+    truncate_options(url_with_options, &url, &access_key_id, &secret_access_key, &oss_type, &cos_appid, &layer, &subdataset);
     region = getRegion(url + strlen("oss://"));
     set_env(access_key_id, secret_access_key, region);
     vfs_url = getVFSUrl(url);
@@ -98,6 +103,92 @@ ogr_fdw_info(PG_FUNCTION_ARGS)
 
     /* make sure we have a persistent copy of the tupdesc */
     materializeResult(fcinfo, result, count);
+
+    return (Datum) 0;
+}
+
+Datum
+nc_subdataset_info(PG_FUNCTION_ARGS)
+{
+    LayerResult *result = NULL;
+    ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+    int k = 0;
+    char *url_with_options = text_to_cstring(PG_GETARG_TEXT_PP(0));
+    char *url, *region, *access_key_id, *secret_access_key, *oss_type, *cos_appid, *layer, *bucket, *prefix;
+    int subdataset;
+    char *buffer = NULL;
+    ossContext ossContextInt;
+    ossObjectResult* objs = NULL;
+
+    /* check to see if caller supports us returning a tuplestore */
+    if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo))
+	ereport(ERROR,
+		(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+		 errmsg("set-valued function called in context that cannot accept a set")));
+    if (!(rsinfo->allowedModes & SFRM_Materialize))
+	ereport(ERROR,
+		(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+		 errmsg("materialize mode required, but it is not " \
+		     "allowed in this context")));
+
+    truncate_options(url_with_options, &url, &access_key_id, &secret_access_key, &oss_type, &cos_appid, &layer, &subdataset);
+
+    //TODO:
+    //Assert all the
+    region = getRegion(url + strlen("oss://"));
+    bucket = getBucket(url + strlen("oss://"));
+    prefix = url + strlen("oss://s3..amazonaws.com//") + strlen(region) + strlen(bucket);
+    elog(DEBUG1, "%s-%s-%s", region, bucket, prefix);
+    ossContextInt = ossInitContext("S3",
+	    region,
+	    NULL,
+	    access_key_id,
+	    secret_access_key,
+	    1024 * 2,
+	    1024 * 2);
+    if(!ossContextInt){
+	elog(ERROR, "initialize ossContextInt with error message %s", ossGetLastError());
+    }
+    objs = ossListObjects(ossContextInt, bucket, prefix);
+    if (objs == NULL)
+	elog(ERROR, "listobjcet return NULL");
+    for (k = 0; k < objs->nObjects; k++)
+    {
+	elog(DEBUG1, "listobject size = %d, name=%s\n", objs->objects[k].size, objs->objects[k].key);
+	if (objs->objects[k].size > 0){ 
+	    buffer = (char *)palloc0(sizeof(char) * objs->objects[k].size);
+	    DownloadObject(ossContextInt,  bucket,
+		    objs->objects[k].key, objs->objects[k].size, buffer);
+	    break;
+	}
+    }
+    Assert(k <  objs->nObjects);
+    ossDestroyContext(ossContextInt);
+
+    CPLSetConfigOption("GDAL_SKIP", NULL);
+    GDALAllRegister();
+    if (is_netcdf(objs->objects[k].key)) {
+	GDALDatasetH hds;
+	saveTmpFile(objs->objects[k].key, buffer, objs->objects[k].size);
+
+	hds = GDALOpenEx("/tmp/temp.netcdffile", GDAL_OF_READONLY | GDAL_OF_RASTER | GDAL_OF_VERBOSE_ERROR, NULL,NULL,NULL);
+	if (hds == NULL) {
+	    elog(ERROR, "open memory gdal failed.\n");
+	}
+
+	result = (LayerResult *)palloc0(sizeof(LayerResult) * 1);
+	strcpy(result[0].layerName, objs->objects[k].key);
+	getSubDataset(hds, (result[0].exttbl_definition), -1);
+	GDALClose(hds);
+    }
+
+    /* let the caller know we're sending back a tuplestore */
+    rsinfo->returnMode = SFRM_Materialize;
+    rsinfo->setResult = NULL;
+    rsinfo->setDesc = NULL;
+
+    /* make sure we have a persistent copy of the tupdesc */
+    materializeResult(fcinfo, result, 1);
 
     return (Datum) 0;
 }
@@ -210,9 +301,10 @@ Datum shape_file_import(PG_FUNCTION_ARGS) {
         char *url_with_options = EXTPROTOCOL_GET_URL(fcinfo);
 	char *vfs_url = NULL;
         char *url, *region, *access_key_id, *secret_access_key, *oss_type, *cos_appid, *layer = NULL;
+	int subds;
 	GDALAllRegister();
 
-        truncate_options(url_with_options, &url, &access_key_id, &secret_access_key, &oss_type, &cos_appid, &layer);
+        truncate_options(url_with_options, &url, &access_key_id, &secret_access_key, &oss_type, &cos_appid, &layer, &subds);
 		
 	if (layer == NULL)
 	    elog(ERROR, "set layer_name!");
@@ -229,6 +321,7 @@ Datum shape_file_import(PG_FUNCTION_ARGS) {
 	if (reader == NULL)
 	    PG_RETURN_INT32((int)0);
 
+	pfree(region);
         EXTPROTOCOL_SET_USER_CTX(fcinfo, reader);
 
         pfree(url);

@@ -24,6 +24,7 @@ PG_FUNCTION_INFO_V1(oss_export);
 PG_FUNCTION_INFO_V1(oss_import);
 PG_FUNCTION_INFO_V1(oss_validate_urls);
 PG_FUNCTION_INFO_V1(ogr_fdw_info);
+PG_FUNCTION_INFO_V1(nc_subdataset_info);
 
 Datum oss_export(PG_FUNCTION_ARGS);
 Datum oss_import(PG_FUNCTION_ARGS);

@@ -22,7 +22,7 @@ extern "C" {
 class OssGisReader {
 public:
     OssGisReader(FileScanDesc scan, ListBucketResult *keys,
-              std::unique_ptr<OSSExtBase> base);
+              std::unique_ptr<OSSExtBase> base, int subds);
     virtual ~OssGisReader();
     HeapTuple read();
     ossContext getContext();
@@ -42,6 +42,7 @@ private:
     char *	curObjectName;
     AttInMetadata *attinmeta;
     char	format;
+    int		subdataset;
 
 private:
     void nextFile();
@@ -55,7 +56,8 @@ extern "C" {
                                           const char *secret_access_key,
                                           const char *oss_type,
                                           const char *cos_appid,
-					  char format);
+					  char format,
+					  int subds);
     HeapTuple oss_gis_read_tuple(OssGisReader *reader);
     void test_oss(ossContext context);
 }

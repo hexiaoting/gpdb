@@ -61,43 +61,11 @@ void safePfree(void *p) {
     }
 }
 
-bool is_netcdf(char *filename)
-{
-    int length = strlen(filename);
-    if (!strcmp(filename + length - 3, ".nc"))
-	return true;
-    return false;
-}
-
-bool saveTmpFile(char *filename, char *buffer, int64_t size)
-{
-    char newFileName[100] = "/tmp/temp.netcdffile";
-    FILE *file = NULL;
-    int count = 0;
-
-    elog(INFO, "save %s to newFileName:%s", filename, newFileName);
-    file = fopen(newFileName, "w+");
-    if (file == NULL)
-	return false;
-
-    while (count < size) {
-	size_t tmp = fwrite(buffer + count, 1, size - count,
-		file);
-	if (tmp <= 0)
-	    break;
-	count += tmp;
-    }
-    fclose(file);
-    elog(INFO, "write %s to newFileName:%s", filename, newFileName);
-
-    return true;
-}
-
 OssGisReader::OssGisReader(FileScanDesc scan, ListBucketResult *keys,
-                         std::unique_ptr<OSSExtBase> base)
+                         std::unique_ptr<OSSExtBase> base, int subds)
     : scan(scan), keys(keys), base(std::move(base)), /*tupdesc(scan->fs_tupDesc),*/
       /*ncolumns(tupdesc->natts),*/ fileIndex(0),
-      curObjectSize(0)
+      curObjectSize(0), subdataset(subds)
 {
     if (scan != NULL) {
 	tupdesc = scan->fs_tupDesc;
@@ -205,9 +173,9 @@ HeapTuple OssGisReader::nextTuple() {
 	    elog(ERROR, "open memory gdal failed.\n");
 	}
 
-	char *datasetName = getSubDataset(hds);
+	char *datasetName = getSubDataset(hds, NULL, this->subdataset);
 	char* ptr = strchr(datasetName, '=');
-	elog(DEBUG1, "open netcdf %s", ptr + 1);
+	elog(DEBUG1, "open %d ### %s", this->subdataset, ptr + 1);
 	GDALClose(hds);
 	hds = GDALOpenEx(ptr + 1, GDAL_OF_READONLY | GDAL_OF_RASTER | GDAL_OF_VERBOSE_ERROR, NULL,NULL,NULL);
     }
@@ -321,7 +289,8 @@ OssGisReader *create_import_reader_internal(FileScanDesc scan, const char *url,
                                            const char *access_key_id,
                                            const char *secret_access_key,
                                            const char *oss_type,
-                                           const char *cos_appid) {
+                                           const char *cos_appid,
+					   int subds) {
 
     ListBucketResult *keylist = NULL;
     std::unique_ptr<OSSExtBase> base(new OSSExtBase);
@@ -379,7 +348,7 @@ OssGisReader *create_import_reader_internal(FileScanDesc scan, const char *url,
 		i, tmp.key, tmp.size);
     }
 
-    return new OssGisReader(scan, keylist, std::move(base));
+    return new OssGisReader(scan, keylist, std::move(base), subds);
 }
 
 
@@ -393,10 +362,11 @@ OssGisReader *create_import_reader(FileScanDesc scan, const char *url,
                                   const char *secret_access_key,
                                   const char *oss_type,
                                   const char *cos_appid,
-				  char format) {
+				  char format,
+				  int subds) {
     try {
         OssGisReader * reader = 
-	    create_import_reader_internal(scan, url, access_key_id, secret_access_key, oss_type, cos_appid);
+	    create_import_reader_internal(scan, url, access_key_id, secret_access_key, oss_type, cos_appid, subds);
 	reader->setFormat(format);
 	return reader;
     } catch (std::exception &e) {

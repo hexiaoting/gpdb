@@ -17,7 +17,22 @@ CREATE READABLE EXTERNAL TABLE  osstbl_example(
     LOCATION('oss://s3.ap-northeast-1.amazonaws.com/hwtoss/test access_key_id=AKIAIH7UJTSAWOAHE5FQ secret_access_key=h2j/BwA8Gi/yGy+cxRDQDNCvJeWIbsN90EiFk8BL oss_type=S3')
     FORMAT 'gis';
 
+
 --
+-- NetCDF: 
+-- 1. show subdataset for one netcdf file
+-- 2. create table with subdataset=xxx option
+--
+CREATE OR REPLACE FUNCTION nc_subdataset_info(text) returns setof record as  '$libdir/gpossext.so', 'nc_subdataset_info' LANGUAGE C STRICT;
+select * from nc_subdataset_info('oss://s3.ap-northeast-1.amazonaws.com/hwtoss/netcdf access_key_id=AKIAIH7UJTSAWOAHE5FQ secret_access_key=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') AS tbl(name text, sqlq text);
+CREATE READABLE EXTERNAL TABLE  osstbl_netcdf(
+	filename text,
+	rast raster,
+	metadata text
+	)
+    LOCATION('oss://s3.ap-northeast-1.amazonaws.com/hwtoss/netcdf subdataset=1 access_key_id=AKIAIH7UJTSAWOAHE5FQ secret_access_key=h2j/BwA8Gi/yGy+cxRDQDNCvJeWIbsN90EiFk8BL oss_type=S3')
+    FORMAT 'gis';
+
 -- Query
 --
 select filename, st_value(rast, 3, 4), metadata from osstbl_example;

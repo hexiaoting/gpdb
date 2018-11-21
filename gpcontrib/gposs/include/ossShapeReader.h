@@ -15,8 +15,8 @@
 #include "utils/builtins.h"
 #include "gpossext.h"
 
-#define LAYER_LENGTH 24
-#define DEF_LENGTH   512 
+#define LAYER_LENGTH 100
+#define DEF_LENGTH   1024 
 
 extern Oid GEOMETRYOID;
 

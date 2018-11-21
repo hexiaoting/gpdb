@@ -58,10 +58,12 @@ FAIL:
 void
 truncate_options(const char *url_with_options, char **url,
 		char **access_key_id, char **secret_access_key,
-		char **oss_type, char **cos_appid, char **layer_name)
+		char **oss_type, char **cos_appid, char **layer_name,
+		int *subdataset)
 {
     const char *delimiter = " ";
     char	*options;
+    char *tmp;
     int url_len;
 
     options = strstr((char *)url_with_options, delimiter);
@@ -105,6 +107,12 @@ truncate_options(const char *url_with_options, char **url,
     {
 	*layer_name = "";
     }
+
+    tmp = get_opt_oss(options, "subdataset");
+    if (tmp == NULL)
+	*subdataset = -1;
+    else
+	*subdataset = atoi(tmp);
 
     return;
 }
@@ -150,6 +158,14 @@ char *getRegion(char *url)
     }
     elog(DEBUG1, "hwt-->getRegion region=NULL url=%s ", url);
     return region;
+}
+
+char *getBucket(char *url)
+{
+    int i = 0;
+    char *bucket = strchr(url, '/') + 1;
+    while(bucket[i] != '/' && bucket[i] != '\0') i++; 
+    return strndup(bucket, i);
 }
 
 
@@ -615,5 +631,37 @@ ogrTypeToPgType(OGRFieldDefnH ogr_fld)
 	    return NULL;
     }
     return NULL;
+}
+
+bool is_netcdf(char *filename)
+{
+    int length = strlen(filename);
+    if (!strcmp(filename + length - 3, ".nc"))
+	return true;
+    return false;
+}
+
+bool saveTmpFile(char *filename, char *buffer, int64_t size)
+{
+    char newFileName[100] = "/tmp/temp.netcdffile";
+    FILE *file = NULL;
+    int count = 0;
+
+    elog(DEBUG4, "save %s to newFileName:%s", filename, newFileName);
+    file = fopen(newFileName, "w+");
+    if (file == NULL)
+	return false;
+
+    while (count < size) {
+	size_t tmp = fwrite(buffer + count, 1, size - count,
+		file);
+	if (tmp <= 0)
+	    break;
+	count += tmp;
+    }
+    fclose(file);
+    elog(DEBUG4, "write %s to newFileName:%s", filename, newFileName);
+
+    return true;
 }
 
